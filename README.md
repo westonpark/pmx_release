@@ -254,5 +254,12 @@ published here may be downloaded and used free of charge, including commercially
 not be modified, reverse-engineered or redistributed in modified form. See
 [LICENSE](LICENSE) for the full terms. The source code is not public.
 
+The binaries include open-source components (Rust crates and the QuickJS JavaScript engine)
+under MIT, Apache-2.0, BSD, ISC, Zlib, CC0, Unicode and similar permissive licences; those
+components remain under their own licences, which the LICENSE terms above do not restrict.
+Their copyright notices and licence texts are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which is also attached to each release and
+installed next to the binary as `pmx-THIRD_PARTY_NOTICES.md`.
+
 pm2 is a trademark of its respective owner; pmx is an independent implementation and is not
 affiliated with or endorsed by the pm2 project.
