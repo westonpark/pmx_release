@@ -41,10 +41,17 @@ public; this repository holds the releases, this README, the licence and the ins
 | Linux aarch64 (arm64), glibc 2.17 or newer | `pmx-linux-arm64` |
 | Linux x86_64, musl (Alpine) | `pmx-linux-x64-musl` |
 | Linux aarch64 (arm64), musl (Alpine) | `pmx-linux-arm64-musl` |
+| Linux 32-bit ARM hard-float (armhf), glibc 2.17 or newer: Raspberry Pi with 32-bit Raspberry Pi OS (any model from the Pi 1 / Zero on), Debian / Ubuntu armhf | `pmx-linux-armhf` |
 | macOS 11 or newer, Intel | `pmx-darwin-x64` |
 | macOS 11 or newer, Apple silicon | `pmx-darwin-arm64` |
 
-Every asset has a `<asset>.sha256` checksum file beside it. Windows is not supported.
+Every asset has a `<asset>.sha256` checksum file beside it. Windows is not supported, nor are
+32-bit ARM soft-float (armel) and 32-bit ARM with musl.
+
+**Raspberry Pi:** if `dpkg --print-architecture` prints `armhf` you need `pmx-linux-armhf`, even
+when `uname -m` says `aarch64` (32-bit Raspberry Pi OS with the 64-bit kernel). If it prints
+`arm64`, use `pmx-linux-arm64`. The installer works this out by itself;
+`sh install.sh --print-platform` shows which asset it would pick.
 
 ## Quick install
 
@@ -95,7 +102,7 @@ Options go after `sh -s --`; environment variables go before `sh` (or are export
 | `--no-setup` / `PMX_SETUP=0` | | install the binary and aliases only: no hand-over, service, link or clean-up |
 | `--uninstall` | | remove pmx (see [Uninstall](#uninstall)) |
 | `-h`, `--help` | | show the installer's help |
-| `PMX_PLATFORM` | detected | force an asset, e.g. `linux-x64-musl` on a glibc host |
+| `PMX_PLATFORM` | detected | force an asset, e.g. `linux-x64-musl` on a glibc host, or `linux-armhf` |
 | `PMX_REPO` | `westonpark/pmx_release` | GitHub repository to download releases from (for a mirror) |
 | `PMX_GITHUB_TOKEN` | | token for a **private** mirror repository named by `PMX_REPO` (not needed for this repository) |
 | `PRODMAN_URL`, `PM2_PUBLIC_KEY`, `PM2_SECRET_KEY` | | link the host to this prodman bucket (all three are needed) |
@@ -135,7 +142,7 @@ put it on your `PATH` with the aliases.
 Linux (replace the asset name to match your platform from the table above):
 
 ```sh
-asset=pmx-linux-x64        # pmx-linux-arm64, pmx-linux-x64-musl, pmx-linux-arm64-musl
+asset=pmx-linux-x64        # pmx-linux-arm64, pmx-linux-armhf, pmx-linux-x64-musl, pmx-linux-arm64-musl
 base=https://github.com/westonpark/pmx_release/releases/latest/download
 curl -fsSLO "$base/$asset" -O "$base/$asset.sha256"
 sha256sum -c "$asset.sha256"              # must print: <asset>: OK
