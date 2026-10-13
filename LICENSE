@@ -1,0 +1,29 @@
+pmx binary licence
+
+Copyright (c) 2026 Mike Warriner. All rights reserved.
+
+pmx is proprietary software. Its source code is not published.
+
+1. Permitted use. You may download the pmx binaries and installer published in this
+   repository and install and use them, free of charge, on any number of machines, for any
+   purpose, including commercial use.
+
+2. Copies. You may copy unmodified binaries and the unmodified installer for your own use
+   and for use within your organisation, for example in a private mirror, a container image
+   or a provisioning script.
+
+3. Restrictions. You may not:
+   (a) modify, adapt, translate or create derivative works of the binaries;
+   (b) reverse-engineer, decompile or disassemble the binaries, except to the extent that
+       applicable law expressly permits this despite this restriction;
+   (c) sell, rent, sublicense or distribute the binaries to third parties in modified form,
+       or remove or alter any copyright or licence notice.
+
+4. No other rights. All rights not expressly granted are reserved. This licence ends
+   automatically if you breach it.
+
+5. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE
+   FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
