@@ -13,7 +13,7 @@
 # Releases are public (02-decisions D-30): no token is needed to download them.
 #
 # Behaviour: docs/install.md; adapted from prodman/specs/09-client-pm2.md §9 for pmx
-# (02-decisions D-01, D-13, D-16, D-30; 50-agent AG-801, AG-812…814).
+# (02-decisions D-01, D-13, D-16, D-30, D-31; 50-agent AG-801, AG-812…814).
 
 set -eu
 umask 022
@@ -32,12 +32,13 @@ Options:
   --base-url <url>   directory holding the assets and .sha256 files (env PMX_BASE_URL)
   --no-setup         install the binary and aliases only (env PMX_SETUP=0)
   --uninstall        stop pmx, remove its service, binary and aliases (keeps PM2_HOME)
+  --print-platform   print the release asset this host needs (e.g. linux-armhf) and exit
   -h, --help         this help
 
 Environment:
   PMX_INSTALL_DIR, PMX_VERSION, PMX_REPO (GitHub repository holding the releases,
   default westonpark/pmx_release, public: no token needed), PMX_BASE_URL, PMX_SETUP,
-  PMX_PLATFORM (force an asset, e.g. linux-x64-musl),
+  PMX_PLATFORM (force an asset, e.g. linux-x64-musl or linux-armhf),
   PMX_GITHUB_TOKEN (download through the GitHub API, for a private mirror; GITHUB_TOKEN /
   GH_TOKEN are used too, but only when PMX_REPO names another repository),
   PRODMAN_URL + PM2_PUBLIC_KEY + PM2_SECRET_KEY [+ PM2_MACHINE_NAME] (link to a bucket),
@@ -50,6 +51,7 @@ EOF
 
 DRY_RUN=0
 UNINSTALL=0
+PRINT_PLATFORM=0
 OPT_VERSION=""
 OPT_DIR=""
 OPT_BASE=""
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run | -n) DRY_RUN=1 ;;
         --uninstall) UNINSTALL=1 ;;
+        --print-platform) PRINT_PLATFORM=1 ;;
         --no-setup) OPT_SETUP=0 ;;
         --version) [ $# -ge 2 ] || { usage >&2; exit 2; }; OPT_VERSION=$2; shift ;;
         --version=*) OPT_VERSION=${1#*=} ;;
@@ -140,6 +143,9 @@ PM2_HOME=${PM2_HOME:-$HOME/.pm2}
 PM2_HOME=${PM2_HOME%/}
 export PM2_HOME
 BIN="$INSTALL_DIR/pmx"
+# Licences of the third-party code in the binary (a release asset), installed next to it.
+NOTICES_ASSET=THIRD_PARTY_NOTICES.md
+NOTICES_FILE="$INSTALL_DIR/pmx-THIRD_PARTY_NOTICES.md"
 ALIASES="pm2 pm2-runtime pm2-dev pm2-docker"
 USER_NAME=$(id -un 2>/dev/null || printf '%s' "${USER:-}")
 USER_ID=$(id -u)
@@ -169,6 +175,66 @@ pmx_cmd() {
 
 # --------------------------------------------------------------------------- platform
 
+# ELF architecture of a userland binary (normally /bin/sh): arm32hf, arm32sf, arm64, other, or
+# nothing when it cannot be read. Distinguishes a 32-bit userland on a 64-bit kernel (D-31).
+elf_arch() {
+    have od || return 0
+    _h=$(od -An -v -t x1 -N 40 "$1" 2>/dev/null | tr -d ' \n') || return 0
+    case "$_h" in 7f454c46*) ;; *) return 0 ;; esac
+    # byte 4: class (01 = 32-bit, 02 = 64-bit); bytes 18-19: e_machine (little-endian);
+    # byte 37: second byte of the 32-bit e_flags (0x04 = EF_ARM_ABI_FLOAT_HARD).
+    _cls=$(printf '%s' "$_h" | cut -c9-10)
+    _mach=$(printf '%s' "$_h" | cut -c37-40)
+    case "$_cls:$_mach" in
+        01:2800)
+            _f=$(printf '%s' "$_h" | cut -c75-76)
+            if [ -n "$_f" ] && [ $((0x$_f & 4)) -ne 0 ]; then echo arm32hf; else echo arm32sf; fi
+            ;;
+        02:b700) echo arm64 ;;
+        *) echo other ;;
+    esac
+}
+
+# platform_for <os> <uname -m> <dpkg arch or ""> <elf_arch of /bin/sh or ""> <musl 0|1>
+# Prints the release platform for those host facts, or nothing when there is no asset
+# (02-decisions D-13, D-16, D-31).
+platform_for() {
+    _pos=$1 _pm=$2 _pdpkg=$3 _psh=$4 _pmusl=$5
+    case "$_pos" in
+        Darwin)
+            case "$_pm" in
+                x86_64 | amd64) echo darwin-x64 ;;
+                arm64 | aarch64) echo darwin-arm64 ;;
+            esac
+            return 0
+            ;;
+        Linux) ;;
+        *) return 0 ;;
+    esac
+    _ps=""
+    [ "$_pmusl" = 1 ] && _ps=-musl
+    case "$_pm" in
+        x86_64 | amd64) echo "linux-x64$_ps"; return 0 ;;
+        aarch64 | arm64)
+            # A 64-bit kernel may run a 32-bit userland (Raspberry Pi OS 32-bit with the 64-bit
+            # kernel): the userland decides, by dpkg or else by the ELF class of /bin/sh.
+            case "$_pdpkg:$_psh" in
+                armhf:* | armel:* | :arm32hf | :arm32sf) ;;
+                *) echo "linux-arm64$_ps"; return 0 ;;
+            esac
+            ;;
+        armv6* | armv7* | armv8* | arm | armhf) ;;
+        *) return 0 ;;
+    esac
+    # 32-bit ARM: hard-float glibc only (no armel, no armhf musl asset).
+    [ "$_pmusl" = 1 ] && return 0
+    case "$_pdpkg" in
+        armel) return 0 ;;
+        "") [ "$_psh" = arm32sf ] && return 0 ;;
+    esac
+    echo linux-armhf
+}
+
 detect_platform() {
     if [ -n "${PMX_PLATFORM:-}" ]; then
         PLATFORM=$PMX_PLATFORM
@@ -176,30 +242,33 @@ detect_platform() {
     fi
     _os=$(uname -s)
     case "$_os" in
-        Linux) _os=linux ;;
-        Darwin) _os=darwin ;;
+        Linux | Darwin) ;;
         *) die "unsupported OS $_os: pmx runs on Linux and macOS" ;;
     esac
     _m=$(uname -m)
-    case "$_m" in
-        x86_64 | amd64) _arch=x64 ;;
-        aarch64 | arm64) _arch=arm64 ;;
-        *) die "no pmx binary for $_m (x64 and arm64 only)" ;;
-    esac
-    # A 64-bit kernel with a 32-bit userland, or Rosetta: trust the kernel's answer.
-    _suffix=""
-    if [ "$_os" = linux ]; then
+    _dpkg="" _sh="" _musl=0
+    if [ "$_os" = Linux ]; then
+        if have dpkg; then _dpkg=$(dpkg --print-architecture 2>/dev/null || true); fi
+        # PMX_TEST_SH_ELF: tests only — the file probed instead of /bin/sh.
+        _sh=$(elf_arch "${PMX_TEST_SH_ELF:-/bin/sh}")
         if ls /lib/ld-musl-* >/dev/null 2>&1 || { have ldd && ldd --version 2>&1 | grep -qi musl; }; then
-            _suffix=-musl
+            _musl=1
         fi
     fi
-    PLATFORM="$_os-$_arch$_suffix"
+    PLATFORM=$(platform_for "$_os" "$_m" "$_dpkg" "$_sh" "$_musl")
+    if [ -z "$PLATFORM" ]; then
+        _what=$_m
+        [ -n "$_dpkg" ] && _what="$_m, userland $_dpkg"
+        [ "$_musl" = 1 ] && _what="$_what, musl"
+        die "no pmx binary for $_what (linux x64/arm64 glibc or musl, linux armhf glibc, macOS x64/arm64)"
+    fi
 }
 
 # --------------------------------------------------------------------------- download
 
 TMP=""
-cleanup() { [ -n "$TMP" ] && rm -rf "$TMP"; }
+# (if, not &&: the trap's status must not become the exit status when TMP is unset)
+cleanup() { if [ -n "$TMP" ]; then rm -rf "$TMP"; fi; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -294,6 +363,40 @@ download_verified() {
     VERSION=$(printf '%s\n' "$INFO" | sed -n 's/^{"version":"\([^"]*\)".*/\1/p')
     [ -n "$VERSION" ] || die "the downloaded binary does not run on this machine"
     NEW_SHA=$_got
+    download_notices
+}
+
+# The third-party notices: best effort (a release or mirror without them still installs).
+NOTICES=""
+download_notices() {
+    _f="$TMP/$NOTICES_ASSET"
+    if [ -n "$GH_TOKEN_VALUE" ] && [ -z "$BASE_URL" ]; then
+        _u=$(api_asset_url "$NOTICES_ASSET")
+        [ -n "$_u" ] || return 0
+        fetch "$_u" "$_f" "application/octet-stream" 2>/dev/null || return 0
+    else
+        fetch "$SRC/$NOTICES_ASSET" "$_f" 2>/dev/null || return 0
+    fi
+    if grep -q 'Third-party notices' "$_f" 2>/dev/null; then
+        NOTICES=$_f
+    fi
+    return 0
+}
+
+install_notices() {
+    [ -n "$NOTICES" ] || return 0
+    if [ -f "$NOTICES_FILE" ] && [ "$(sha256_of "$NOTICES_FILE")" = "$(sha256_of "$NOTICES")" ]; then
+        return 0
+    fi
+    if is_dry; then
+        say "[dry-run] would install $NOTICES_FILE"
+    elif cp "$NOTICES" "$NOTICES_FILE.new.$$" && chmod 644 "$NOTICES_FILE.new.$$" &&
+        mv -f "$NOTICES_FILE.new.$$" "$NOTICES_FILE"; then
+        say "installed $NOTICES_FILE (third-party licences)"
+    else
+        rm -f "$NOTICES_FILE.new.$$"
+        warn "could not write $NOTICES_FILE"
+    fi
 }
 
 # --------------------------------------------------------------------------- install
@@ -343,6 +446,7 @@ install_binary() {
             say "$_what -> pmx"
         fi
     done
+    install_notices
 }
 
 # The $PM2_HOME layout, created as this user so later root-run commands (pmx startup)
@@ -850,6 +954,9 @@ do_uninstall() {
         fi
     done
     run rm -f "$BIN"
+    if [ -e "$NOTICES_FILE" ]; then
+        run rm -f "$NOTICES_FILE"
+    fi
     say "removed pmx${VERSION:+ $VERSION} from $INSTALL_DIR; $PM2_HOME (logs, dump.pm2, agent.json5) was kept"
     print_warnings
 }
@@ -915,6 +1022,11 @@ summary() {
 # --------------------------------------------------------------------------- main
 
 main() {
+    if [ "$PRINT_PLATFORM" = 1 ]; then
+        detect_platform
+        say "$PLATFORM"
+        return 0
+    fi
     if [ "$UNINSTALL" = 1 ]; then
         do_uninstall
         return 0
