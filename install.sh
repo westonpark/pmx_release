@@ -401,6 +401,51 @@ install_notices() {
 
 # --------------------------------------------------------------------------- install
 
+# A short description of a file: "93.4 MB ELF executable", "1.2 KB script (#!/usr/bin/env node)",
+# "symlink to <target>".
+describe_file() {
+    if [ -L "$1" ]; then
+        printf 'symlink to %s' "$(readlink "$1")"
+        return 0
+    fi
+    _sz=$(wc -c <"$1" 2>/dev/null | tr -d ' ') || _sz=0
+    [ -n "$_sz" ] || _sz=0
+    if [ "$_sz" -ge 1048576 ]; then
+        _hs=$(awk -v b="$_sz" 'BEGIN { printf "%.1f MB", b / 1048576 }')
+    elif [ "$_sz" -ge 1024 ]; then
+        _hs=$(awk -v b="$_sz" 'BEGIN { printf "%.1f KB", b / 1024 }')
+    else
+        _hs="$_sz bytes"
+    fi
+    _magic=""
+    if have od; then
+        _magic=$(od -An -v -t x1 -N 4 "$1" 2>/dev/null | tr -d ' \n') || _magic=""
+    fi
+    case "$_magic" in
+        7f454c46) _ty="ELF executable" ;;
+        cffaedfe | cefaedfe | cafebabe) _ty="Mach-O executable" ;;
+        2321*) _ty="script ($(head -n 1 "$1" 2>/dev/null | cut -c1-60))" ;;
+        *) _ty="file" ;;
+    esac
+    printf '%s %s' "$_hs" "$_ty"
+}
+
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+# Moves a foreign file at an alias path to <path>.replaced-<UTC timestamp>, with a warning.
+set_aside() {
+    _aside="$1.replaced-$STAMP"
+    _desc=$(describe_file "$1")
+    if is_dry; then
+        say "[dry-run] would move $1 ($_desc, not the pmx alias) to $_aside"
+        return 0
+    fi
+    if ! mv -f "$1" "$_aside"; then
+        warn "$1 is $_desc, not the pmx alias, and could not be moved aside: alias not restored"
+        return 1
+    fi
+    warn "$1 was $_desc, not the pmx alias (another pm2 installer?): moved it to $_aside and restored the alias"
+}
+
 BIN_CHANGED=0
 OLD_BIN_VERSION=""
 install_binary() {
@@ -431,10 +476,15 @@ install_binary() {
             warn "$_p is a directory: alias not created"
             continue
         fi
-        if [ -e "$_p" ] || [ -L "$_p" ]; then
+        _what="linking $_p"
+        if [ -L "$_p" ] && [ "$(resolve "$_p")" = "$(resolve "$BIN")" ]; then
+            # A link to pmx by another path: just normalised.
             _what="replacing $_p"
-        else
-            _what="linking $_p"
+        elif [ -e "$_p" ] || [ -L "$_p" ]; then
+            # Another program took the alias's place (e.g. a pm2_prodman installer run after
+            # pmx, D-36): keep it aside and restore the alias.
+            set_aside "$_p" || continue
+            _what="restoring $_p"
         fi
         if is_dry; then
             say "[dry-run] would link $_p -> pmx"
@@ -710,57 +760,149 @@ unit_exec() {
 # Escapes a replacement for sed's s|…|…|.
 sed_repl() { printf '%s\n' "$1" | sed 's/[\\|&]/\\&/g'; }
 
-node_dir() {
-    if [ -x "$HOME/.pm2-current/bin/node" ]; then
-        printf '%s\n' "$HOME/.pm2-current/bin"
-    elif [ -n "${PM2_NODE:-}" ]; then
-        dirname -- "$PM2_NODE"
-    elif have node; then
-        dirname -- "$(command -v node)"
+ESC=$(printf '\033')
+# The service PATH and Node.js directory pmx would use (`pmx startup` dry run, D-36): sets
+# WANT_PATH, WANT_NODE (empty when no Node.js) and NODE_NOTE (what was found).
+WANT_PATH=""
+WANT_NODE=""
+NODE_NOTE=""
+startup_plan() {
+    _plan=$(env "PATH=$PATH" "PM2_HOME=$PM2_HOME" "HOME=$HOME" PM2_DISCRETE_MODE=true NO_COLOR=1 \
+        PMX_STARTUP_DRY_RUN=1 "$BIN" startup systemd -u "$USER_NAME" --hp "$HOME" 2>/dev/null |
+        sed "s/$ESC\[[0-9;]*m//g") || _plan=""
+    WANT_PATH=$(printf '%s\n' "$_plan" | sed -n 's/^\[PM2\] Service PATH: //p' | head -n 1)
+    NODE_NOTE=$(printf '%s\n' "$_plan" | sed -n 's/^\[PM2\]\(\[WARN\]\)\{0,1\} Node\.js for the service: //p' | head -n 1)
+    WANT_NODE=$(printf '%s\n' "$_plan" | sed -n 's/^\[PM2\] Node\.js for the service: \([^ ]*\) (.*/\1/p' | head -n 1)
+}
+
+# 0 when ExecStart/ExecReload/ExecStop all run pmx itself (not an alias or another binary).
+unit_runs_pmx() {
+    _real=$(resolve "$BIN")
+    for _k in ExecStart ExecReload ExecStop; do
+        _e=$(sed -n "s/^$_k=[-@!+:]*\([^ ]*\).*/\1/p" "$1" | head -n 1)
+        if [ -z "$_e" ]; then
+            [ "$_k" = ExecStart ] && return 1
+            continue
+        fi
+        [ -L "$_e" ] && return 1
+        [ "$(resolve "$_e")" = "$_real" ] || return 1
+    done
+    return 0
+}
+
+unit_path_of() {
+    sed -n 's/^Environment="\{0,1\}PATH=\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$1" | tail -n 1
+}
+
+# Why the unit's PATH is wrong (D-36), or nothing: no PATH, Node.js directory missing, a
+# directory in another user's home, or a home directory that does not exist.
+unit_path_problem() {
+    _up=$(unit_path_of "$1")
+    if [ -z "$_up" ]; then
+        echo "it sets no PATH"
+        return 0
+    fi
+    if [ -n "$WANT_NODE" ]; then
+        case ":$_up:" in
+            *":$WANT_NODE:"*) ;;
+            *)
+                echo "its PATH lacks the Node.js directory $WANT_NODE"
+                return 0
+                ;;
+        esac
+    fi
+    _ifs=$IFS
+    IFS=:
+    for _d in $_up; do
+        case "$_d" in
+            /home/* | /Users/* | /root | /root/* | /var/home/*) ;;
+            *) continue ;;
+        esac
+        case "$_d/" in
+            "$HOME"/*)
+                if [ ! -d "$_d" ]; then
+                    IFS=$_ifs
+                    echo "its PATH has $_d, which does not exist"
+                    return 0
+                fi
+                ;;
+            *)
+                IFS=$_ifs
+                echo "its PATH has $_d, in another user's home"
+                return 0
+                ;;
+        esac
+    done
+    IFS=$_ifs
+}
+
+# Installs a staged unit file over $UNIT_FILE (sudo), reloads and enables it.
+install_unit_file() {
+    if as_root install -m 644 "$1" "$UNIT_FILE" && as_root systemctl daemon-reload &&
+        as_root systemctl enable "$UNIT" >/dev/null 2>&1; then
+        rm -f "$1"
+        UNIT_OK=1
+        UNIT_CHANGED=1
+    else
+        warn "could not install the systemd service $UNIT (needs sudo); run: sudo install -m 644 $1 $UNIT_FILE && sudo systemctl daemon-reload && sudo systemctl enable $UNIT, then re-run this script"
     fi
 }
 
 setup_unit() {
+    startup_plan
+    if [ -n "$NODE_NOTE" ]; then
+        say "Node.js for $UNIT: $NODE_NOTE"
+    fi
     UNIT_FILE=$(unit_file_of)
     if [ -n "$UNIT_FILE" ]; then
-        _exec=$(unit_exec "$UNIT_FILE")
-        if [ -n "$_exec" ] && [ "$(resolve "$_exec")" = "$(resolve "$BIN")" ]; then
+        _fix_exec=0
+        unit_runs_pmx "$UNIT_FILE" || _fix_exec=1
+        _why=""
+        [ -n "$WANT_PATH" ] && _why=$(unit_path_problem "$UNIT_FILE")
+        if [ "$_fix_exec" = 0 ] && [ -z "$_why" ]; then
             UNIT_OK=1
             return 0
         fi
-        say "updating $UNIT_FILE to run $BIN"
-        _staged="$PM2_HOME/$UNIT.service.new"
-        _r=$(sed_repl "$BIN")
+        _real=$(resolve "$BIN")
+        [ "$_fix_exec" = 1 ] && say "updating $UNIT_FILE to run $_real"
+        [ -n "$_why" ] && say "updating the PATH of $UNIT_FILE ($_why): $WANT_PATH"
         if is_dry; then
-            say "[dry-run] would rewrite ExecStart/ExecReload/ExecStop of $UNIT_FILE to $BIN"
+            say "[dry-run] would rewrite $UNIT_FILE and run systemctl daemon-reload"
             UNIT_OK=1
             UNIT_CHANGED=1
             return 0
         fi
-        sed -e "s|^\(ExecStart=[-@!+:]*\)[^ ]*|\1$_r|" \
-            -e "s|^\(ExecReload=[-@!+:]*\)[^ ]*|\1$_r|" \
-            -e "s|^\(ExecStop=[-@!+:]*\)[^ ]*|\1$_r|" "$UNIT_FILE" >"$_staged"
-        if as_root install -m 644 "$_staged" "$UNIT_FILE" && as_root systemctl daemon-reload &&
-            as_root systemctl enable "$UNIT" >/dev/null 2>&1; then
-            rm -f "$_staged"
-            UNIT_OK=1
-            UNIT_CHANGED=1
-        else
-            warn "could not install the systemd service $UNIT (needs sudo); run: sudo install -m 644 $_staged $UNIT_FILE && sudo systemctl daemon-reload && sudo systemctl enable $UNIT, then re-run this script"
+        _staged="$PM2_HOME/$UNIT.service.new"
+        cp "$UNIT_FILE" "$_staged.tmp" || { warn "cannot read $UNIT_FILE"; return 0; }
+        if [ "$_fix_exec" = 1 ]; then
+            # Only the first word of each Exec line changes; the rest of the unit is kept.
+            _r=$(sed_repl "$_real")
+            sed -e "s|^\(ExecStart=[-@!+:]*\)[^ ]*|\1$_r|" \
+                -e "s|^\(ExecReload=[-@!+:]*\)[^ ]*|\1$_r|" \
+                -e "s|^\(ExecStop=[-@!+:]*\)[^ ]*|\1$_r|" "$_staged.tmp" >"$_staged"
+            mv -f "$_staged" "$_staged.tmp"
         fi
+        if [ -n "$_why" ]; then
+            # Replace the PATH line (or add one to [Service]) with the PATH pmx computes.
+            WP=$WANT_PATH awk '
+                /^Environment="?PATH=/ { if (!done) print "Environment=\"PATH=" ENVIRON["WP"] "\""; done = 1; next }
+                { print }' "$_staged.tmp" >"$_staged"
+            if ! grep -q '^Environment="\{0,1\}PATH=' "$_staged"; then
+                WP=$WANT_PATH awk '
+                    { print }
+                    /^\[Service\]/ && !done { print "Environment=\"PATH=" ENVIRON["WP"] "\""; done = 1 }' \
+                    "$_staged.tmp" >"$_staged"
+            fi
+        else
+            mv -f "$_staged.tmp" "$_staged"
+        fi
+        rm -f "$_staged.tmp"
+        install_unit_file "$_staged"
         return 0
     fi
-    # No unit: pmx's own generator (60-extras §6, D-20).
-    _nd=$(node_dir)
-    _path=$PATH
-    if [ -n "$_nd" ]; then
-        case ":$_path:" in
-            *":$_nd:"*) ;;
-            *) _path="$_nd:$_path" ;;
-        esac
-    fi
+    # No unit: pmx's own generator (60-extras §6, D-20, D-36: pmx finds Node.js itself).
     say "installing /etc/systemd/system/$UNIT.service to run $BIN (pmx startup systemd)"
-    _cmd="env PATH=$_path PM2_HOME=$PM2_HOME $BIN startup systemd -u $USER_NAME"
+    _cmd="env PATH=\$PATH PM2_HOME=$PM2_HOME $BIN startup systemd -u $USER_NAME --hp $HOME"
     if [ "$CAN_ROOT" != 1 ]; then
         warn "could not install the systemd service $UNIT (needs sudo); run: sudo $_cmd, then re-run this script"
         return 0
@@ -771,8 +913,10 @@ setup_unit() {
         UNIT_CHANGED=1
         return 0
     fi
-    if as_root env "PATH=$_path" "PM2_HOME=$PM2_HOME" "HOME=$HOME" PM2_DISCRETE_MODE=true \
-        "$BIN" startup systemd -u "$USER_NAME" >"$TMP/startup.log" 2>&1 &&
+    if as_root env "PATH=$PATH" "PM2_HOME=$PM2_HOME" "HOME=$HOME" PM2_DISCRETE_MODE=true \
+        ${PM2_NODE:+"PM2_NODE=$PM2_NODE"} ${NVM_DIR:+"NVM_DIR=$NVM_DIR"} \
+        ${BUN_INSTALL:+"BUN_INSTALL=$BUN_INSTALL"} \
+        "$BIN" startup systemd -u "$USER_NAME" --hp "$HOME" >"$TMP/startup.log" 2>&1 &&
         as_root systemctl daemon-reload; then
         UNIT_FILE=$(unit_file_of)
         UNIT_OK=1
@@ -810,6 +954,10 @@ run_under_unit() {
         say "moving the running PM2 ($(daemon_label), pid $DPID) into $UNIT"
         save_and_stop || return 0
         _killed=1
+    fi
+    if systemctl is-failed --quiet "$UNIT" 2>/dev/null; then
+        # A unit that kept failing (e.g. its binary was replaced) may have hit its start limit.
+        as_root systemctl reset-failed "$UNIT" || true
     fi
     say "starting $UNIT"
     if ! as_root systemctl start "$UNIT"; then
@@ -1005,6 +1153,11 @@ summary() {
         if [ "$SYSTEMD" != 1 ] && [ "$(uname -s)" = Darwin ]; then
             say "to start pmx at login, run: pm2 startup (and the command it prints)"
         fi
+    fi
+    # The pm2_prodman binary unpacks its Bun runtime under $PM2_HOME/runtime (D-36).
+    if [ -d "$PM2_HOME/runtime" ] && [ -n "$(ls -A "$PM2_HOME/runtime" 2>/dev/null)" ]; then
+        _mb=$(du -sk "$PM2_HOME/runtime" 2>/dev/null | awk '{ printf "%.0f MB", $1 / 1024 }')
+        say "note: $PM2_HOME/runtime holds the pm2_prodman Bun runtime (${_mb:-size unknown}); pmx does not use it, so it can be removed: rm -rf $PM2_HOME/runtime"
     fi
     _bin_real=$(resolve "$BIN")
     for _n in pmx pm2; do
