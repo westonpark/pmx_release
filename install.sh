@@ -1148,7 +1148,7 @@ summary() {
             say "pmx $VERSION is installed; no daemon is running yet (pm2 start <app>)"
         fi
         if [ "$LINKED" != 1 ]; then
-            say "not linked to prodman: re-run with PRODMAN_URL, PM2_PUBLIC_KEY and PM2_SECRET_KEY, or run pm2 link <secret> <public>"
+            say "not linked to prodman: run pm2 link to sign in and pick a bucket, or re-run with PRODMAN_URL, PM2_PUBLIC_KEY and PM2_SECRET_KEY (or run pm2 link <secret> <public>)"
         fi
         if [ "$SYSTEMD" != 1 ] && [ "$(uname -s)" = Darwin ]; then
             say "to start pmx at login, run: pm2 startup (and the command it prints)"
