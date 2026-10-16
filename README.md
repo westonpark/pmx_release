@@ -17,6 +17,9 @@ Python is needed to run pmx itself — only by the applications it manages.
   pm2_prodman) daemon, stops it and brings every app back under pmx, then points the
   boot-time service at pmx.
 
+**Documentation: https://www.bothworlds.com/docs** — installing, linking hosts to prodman,
+ecosystem files, deployments, OpenTelemetry and more.
+
 The binaries are free to download and use (see [Licence](#licence)). The source code is not
 public; this repository holds the releases, this README, the licence and the installer.
 
@@ -227,7 +230,7 @@ pm2 stop web && pm2 delete web
 pm2 save                                # remember the process list
 pm2 startup                             # start it at boot (run the printed sudo command)
 
-pm2 link <secret key> <public key>      # link this host to prodman
+pmx link <secret key> <public key>      # link this host to prodman (or just `pmx link` to sign in)
 ```
 
 ## Updating pmx
