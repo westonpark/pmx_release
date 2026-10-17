@@ -20,6 +20,15 @@ umask 022
 
 PROG="pmx install"
 
+# Release signing (02-decisions D-48, 96-modules SVM-048). The release public keys (base64
+# lines of keys/*.pub, space-separated; checked against keys/ by CI) and, filled in by the
+# release workflow for the release this copy belongs to, its version and the SHA-256 of each
+# pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
+# hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
+PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
+PMX_RELEASE_VERSION="9.5.0"
+PMX_RELEASE_SHA256S="linux-x64=88b2b00f8a1199bb11048b84055caf0634357a6b26374a083dd61be404e52641 linux-arm64=abc615ae1ad2cd63a0811b1be94474b237030cb353a63b1e69fd2fb6db5c1b24 linux-x64-musl=42f5dbc23d356599063f75a863a1c970ab0ae2d1ba3961d5b3cf5f23e136345e linux-arm64-musl=314402e86878ac57d4e2a642fbabeba70826a9318bd01559e96fefed47f2039e linux-armhf=4f854f76f5fa16c241dd9b6b571d952fa70c1231c6f9f79c926b63c005ed9265 darwin-x64=0b536371d7a49581d8bd481805b3ed5f02a5a02dac7cf2ba677083aa491ca4da darwin-arm64=6a4eb4afc319ed9bf285b240b9dbc81e53240614bf9cb2e7998d0abfce7b6d8a"
+
 usage() {
     cat <<'EOF'
 Usage: install.sh [options]          (or: curl -fsSL …/install.sh | sh -s -- [options])
@@ -349,6 +358,9 @@ download_verified() {
     [ ${#_want} -eq 64 ] || die "$ASSET.sha256 holds no checksum"
     _got=$(sha256_of "$TMP/$ASSET")
     [ "$_got" = "$_want" ] || die "checksum mismatch for $ASSET"
+    NEW_SHA=$_got
+    # D-48: verified before the new binary is ever run
+    verify_signature
     chmod 755 "$TMP/$ASSET"
     if ! INFO=$("$TMP/$ASSET" --binary-info 2>/dev/null); then
         # A noexec temporary directory: verify it next to its destination instead.
@@ -362,8 +374,81 @@ download_verified() {
     fi
     VERSION=$(printf '%s\n' "$INFO" | sed -n 's/^{"version":"\([^"]*\)".*/\1/p')
     [ -n "$VERSION" ] || die "the downloaded binary does not run on this machine"
-    NEW_SHA=$_got
+    if [ -n "$SIG_VERSION" ] && [ "$VERSION" != "$SIG_VERSION" ]; then
+        die "$ASSET.minisig is for $ASSET v$SIG_VERSION"
+    fi
+    if [ -z "$SIG_VERSION" ] && signed_era "$VERSION"; then
+        die "cannot download $SRC/$ASSET.minisig"
+    fi
     download_notices
+}
+
+# D-48: releases from 9.5.0 on are signed; older ones are verified by SHA-256 only.
+signed_era() {
+    _sv=${1%%-*}
+    _smaj=${_sv%%.*}
+    _srest=${_sv#*.}
+    _smin=${_srest%%.*}
+    case "$_smaj$_smin" in *[!0-9]* | "") return 1 ;; esac
+    [ "$_smaj" -gt 9 ] || { [ "$_smaj" -eq 9 ] && [ "$_smin" -ge 5 ]; }
+}
+
+# SVM-048: the asset's signature (with minisign when installed, else with the downloaded
+# binary itself once its SHA-256 matched the value this script carries for its release).
+verify_signature() {
+    SIG_VERSION=""
+    _sig="$TMP/$ASSET.minisig"
+    if [ -n "$GH_TOKEN_VALUE" ] && [ -z "$BASE_URL" ]; then
+        _m=$(api_asset_url "$ASSET.minisig")
+        if [ -n "$_m" ]; then fetch "$_m" "$_sig" "application/octet-stream" || rm -f "$_sig"; fi
+    else
+        fetch "$SRC/$ASSET.minisig" "$_sig" 2>/dev/null || rm -f "$_sig"
+    fi
+    if [ ! -s "$_sig" ]; then
+        # Whether a signature may be missing comes from what was asked for, never from the
+        # download: only an explicitly pinned release older than 9.5.0, fetched from the
+        # official release repository (no PMX_BASE_URL, no other PMX_REPO), is SHA-256 only.
+        if [ "$VERSION_REQ" != latest ] && ! signed_era "$VERSION_REQ" \
+            && [ -z "$BASE_URL" ] && [ "$REPO" = "$DEFAULT_REPO" ]; then
+            say "pmx $VERSION_REQ predates signed releases: verified by SHA-256 only"
+            return 0
+        fi
+        die "cannot download $SRC/$ASSET.minisig"
+    fi
+    _tc=$(sed -n 's/^trusted comment: //p' "$_sig" | head -n1)
+    _tv=${_tc#pmx-release v}
+    _tv=${_tv%% *}
+    if [ "$_tc" != "pmx-release v$_tv $ASSET" ] || { [ "$VERSION_REQ" != latest ] && [ "$_tv" != "$VERSION_REQ" ]; }; then
+        die "$ASSET.minisig is for ${_tc#pmx-release }"
+    fi
+    if have minisign; then
+        _ok=0
+        for _k in $PMX_SIGNING_KEYS; do
+            if minisign -Vq -P "$_k" -m "$TMP/$ASSET" -x "$_sig" >/dev/null 2>&1; then _ok=1; fi
+        done
+        [ "$_ok" = 1 ] || die "bad signature on $ASSET"
+        say "verified the signature of $ASSET (minisign)"
+        SIG_VERSION=$_tv
+        return 0
+    fi
+    # Without minisign the downloaded binary verifies itself, and it is run only when its
+    # SHA-256 is the one this (signed) install.sh carries for its own release.
+    _embedded=""
+    if [ "$PMX_RELEASE_VERSION" = "$_tv" ]; then
+        for _e in $PMX_RELEASE_SHA256S; do
+            case "$_e" in "$PLATFORM="*) _embedded=${_e#*=} ;; esac
+        done
+    fi
+    if [ -z "$_embedded" ]; then
+        die "cannot verify the signature of pmx $_tv without minisign: install minisign, or use the install.sh of release v$_tv"
+    fi
+    [ "$_embedded" = "$NEW_SHA" ] || die "checksum mismatch for $ASSET (not the binary of this install.sh)"
+    chmod 755 "$TMP/$ASSET"
+    if ! _out=$("$TMP/$ASSET" verify-signature "$TMP/$ASSET" "$_sig" --asset "$ASSET" --version "$_tv" 2>&1); then
+        die "${_out:-bad signature on $ASSET}"
+    fi
+    say "verified the signature of $ASSET"
+    SIG_VERSION=$_tv
 }
 
 # The third-party notices: best effort (a release or mirror without them still installs).
