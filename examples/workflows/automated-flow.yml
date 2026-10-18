@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+# Build, publish and wait for the staging rollout driven by the component's prodman policy
+# (auto: canary 1, batch 50 %, gate 120 s, rollback; promote_to production stays protected).
+# The job fails when the staging rollout fails or rolls back.
+name: Bundle, publish and deploy to staging
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write # only needed for auth: oidc
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: bundle
+        uses: westonpark/pmx_release/actions/bundle@v1
+        with:
+          env: ${{ secrets.APP_ENV }}
+          env-key: ${{ secrets.PMX_BUNDLE_KEY }}
+      - id: publish
+        uses: westonpark/pmx_release/actions/publish@v1
+        with:
+          file: ${{ steps.bundle.outputs.file }}
+          prodman-url: ${{ vars.PRODMAN_URL }}
+          bucket: ${{ vars.PRODMAN_BUCKET }}
+          auth: oidc # otherwise: token: ${{ secrets.PRODMAN_TOKEN }}
+          wait: true
+          wait-timeout: 45m
+      # An explicit deploy without a policy (token with the deploy capability):
+      # - uses: westonpark/pmx_release/actions/deploy@v1
+      #   with:
+      #     prodman-url: ${{ vars.PRODMAN_URL }}
+      #     bucket: ${{ vars.PRODMAN_BUCKET }}
+      #     token: ${{ secrets.PRODMAN_TOKEN }}
+      #     ref: shop/api@${{ steps.bundle.outputs.version }}
+      #     environment: staging

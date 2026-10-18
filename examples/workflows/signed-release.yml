@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+# Signing happens in a separate job bound to a GitHub environment with required reviewers, so
+# the signing key is not available to the build step that runs third-party code.
+name: Build, sign and publish
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: westonpark/pmx_release/actions/bundle@v1
+        with:
+          out: dist/bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: dist/bundle
+          if-no-files-found: error
+  sign-publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: release-signing # required reviewers; holds SIGNING_KEY
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: dist/bundle
+      - uses: westonpark/pmx_release/actions/setup@v1
+      - id: sign
+        env:
+          PMX_BUNDLE_SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          set -eu
+          file=$(ls "$PWD"/dist/bundle/*.tar.gz)
+          pmx bundle sign "$file"
+          echo "file=$file" >>"$GITHUB_OUTPUT"
+      - uses: westonpark/pmx_release/actions/publish@v1
+        with:
+          file: ${{ steps.sign.outputs.file }}
+          prodman-url: ${{ vars.PRODMAN_URL }}
+          bucket: ${{ vars.PRODMAN_BUCKET }}
+          token: ${{ secrets.PRODMAN_TOKEN }}

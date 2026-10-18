@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+name: pmx deploy
+description: Request a deployment of a published bundle (pmx bundle rollout) and optionally wait for it.
+inputs:
+  prodman-url:
+    description: Prodman base URL
+    required: true
+  token:
+    description: "Prodman API token with the deploy capability (secret; not needed with auth: oidc)"
+    default: ""
+  auth:
+    description: "token or oidc"
+    default: token
+  bucket:
+    description: Prodman bucket id or name
+    required: true
+  ref:
+    description: "Release reference: <application>/<component>@<version>"
+    default: ""
+  environment:
+    description: Target environment
+    default: ""
+  servers:
+    description: "Comma-separated target servers (instead of environment)"
+    default: ""
+  canary:
+    description: Canary size
+    default: ""
+  batch:
+    description: "Batch size, N or N%"
+    default: ""
+  on-failure:
+    description: "pause, rollback or continue"
+    default: ""
+  note:
+    description: Note recorded with the rollout
+    default: ""
+  wait:
+    description: "Wait for the rollout to finish"
+    default: "true"
+  wait-timeout:
+    description: "Wait timeout (an approval wait counts against it)"
+    default: 30m
+  rollout-id:
+    description: "Only wait for this existing rollout"
+    default: ""
+  pmx-version:
+    description: "pinned, latest or an exact pmx version"
+    default: pinned
+outputs:
+  rollout-id:
+    description: Rollout id
+    value: ${{ steps.deploy.outputs.rollout-id }}
+  rollout-status:
+    description: Rollout status
+    value: ${{ steps.deploy.outputs.rollout-status }}
+  rollout-url:
+    description: Rollout URL
+    value: ${{ steps.deploy.outputs.rollout-url }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PMX_VERSION_INPUT: ${{ inputs.pmx-version }}
+      run: bash "$ACTION_PATH/../_lib/install-pmx.sh"
+    - id: deploy
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        IN_AUTH: ${{ inputs.auth }}
+        IN_REF: ${{ inputs.ref }}
+        IN_ENVIRONMENT: ${{ inputs.environment }}
+        IN_SERVERS: ${{ inputs.servers }}
+        IN_CANARY: ${{ inputs.canary }}
+        IN_BATCH: ${{ inputs.batch }}
+        IN_ON_FAILURE: ${{ inputs.on-failure }}
+        IN_NOTE: ${{ inputs.note }}
+        IN_WAIT: ${{ inputs.wait }}
+        IN_WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        IN_ROLLOUT_ID: ${{ inputs.rollout-id }}
+        PRODMAN_URL: ${{ inputs.prodman-url }}
+        PRODMAN_TOKEN: ${{ inputs.token }}
+        PRODMAN_BUCKET: ${{ inputs.bucket }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$ACTION_PATH/../_lib/common.sh"
+        pmx_env
+        mask_value "$PRODMAN_TOKEN"
+        require_value prodman-url "$PRODMAN_URL"
+        require_value bucket "$PRODMAN_BUCKET"
+        require_one_of auth "$IN_AUTH" token oidc
+        require_one_of wait "$IN_WAIT" true false
+        if [ "$IN_AUTH" = token ]; then require_value token "$PRODMAN_TOKEN"; fi
+        [ -n "$PRODMAN_TOKEN" ] || unset PRODMAN_TOKEN
+        if [ -n "$IN_ON_FAILURE" ]; then require_one_of on-failure "$IN_ON_FAILURE" pause rollback continue; fi
+
+        if [ -n "$IN_ROLLOUT_ID" ]; then
+          # Exit codes (0/1/2/3, BPL-061) pass through unchanged.
+          exec pmx bundle status --wait --timeout "$IN_WAIT_TIMEOUT" -- "$IN_ROLLOUT_ID"
+        fi
+
+        require_value ref "$IN_REF"
+        if [ -z "$IN_ENVIRONMENT" ] && [ -z "$IN_SERVERS" ]; then
+          die "input 'environment' or 'servers' is required"
+        fi
+        args=(bundle rollout)
+        [ "$IN_AUTH" != oidc ] || args+=(--oidc)
+        [ -z "$IN_ENVIRONMENT" ] || args+=(--environment "$IN_ENVIRONMENT")
+        [ -z "$IN_SERVERS" ] || args+=(--servers "$IN_SERVERS")
+        [ -z "$IN_CANARY" ] || args+=(--canary "$IN_CANARY")
+        [ -z "$IN_BATCH" ] || args+=(--batch "$IN_BATCH")
+        [ -z "$IN_ON_FAILURE" ] || args+=(--on-failure "$IN_ON_FAILURE")
+        [ -z "$IN_NOTE" ] || args+=(--note "$IN_NOTE")
+        if is_true "$IN_WAIT"; then args+=(--wait --timeout "$IN_WAIT_TIMEOUT"); fi
+        args+=(-- "$IN_REF")
+        exec pmx "${args[@]}"

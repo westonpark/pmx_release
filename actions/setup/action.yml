@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+name: Set up pmx
+description: Install a verified pmx binary (no daemon is started).
+inputs:
+  pmx-version:
+    description: "pinned (the version in pmx.json of this ref), latest, or an exact version such as 9.10.0"
+    default: pinned
+outputs:
+  version:
+    description: Installed pmx version
+    value: ${{ steps.install.outputs.version }}
+  path:
+    description: Path of the pmx binary
+    value: ${{ steps.install.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PMX_VERSION_INPUT: ${{ inputs.pmx-version }}
+      run: bash "$ACTION_PATH/../_lib/install-pmx.sh"

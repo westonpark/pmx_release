@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+# Keep bundles as GitHub release assets of a private repository. Prodman needs the component's
+# GitHub token (or the GitHub App) to read the private asset.
+name: Bundle and publish (GitHub store)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write # release assets
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: bundle
+        uses: westonpark/pmx_release/actions/bundle@v1
+      - uses: westonpark/pmx_release/actions/publish@v1
+        with:
+          file: ${{ steps.bundle.outputs.file }}
+          store: github
+          prodman-url: ${{ vars.PRODMAN_URL }}
+          bucket: ${{ vars.PRODMAN_BUCKET }}
+          token: ${{ secrets.PRODMAN_TOKEN }}

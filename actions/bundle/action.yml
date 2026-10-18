@@ -1,0 +1,139 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+name: pmx bundle
+description: Build a deployable bundle with pmx bundle create (optionally signed).
+inputs:
+  working-directory:
+    description: Project directory
+    default: "."
+  config:
+    description: Path of the bundle config (default is auto-detected)
+    default: ""
+  component:
+    description: Component name
+    default: ""
+  application:
+    description: Application name
+    default: ""
+  version:
+    description: Bundle version (default derived by pmx)
+    default: ""
+  build:
+    description: "Run the build step (false passes --no-build)"
+    default: "true"
+  out:
+    description: Output directory
+    default: dist/bundle
+  sign:
+    description: "Sign the bundle (needs signing-key)"
+    default: "false"
+  env:
+    description: "Contents of the environment file to ship encrypted (secret)"
+    default: ""
+  env-key:
+    description: "Key that encrypts the environment (secret)"
+    default: ""
+  signing-key:
+    description: "Minisign secret key used with sign: true (secret)"
+    default: ""
+  pmx-version:
+    description: "pinned, latest or an exact pmx version"
+    default: pinned
+outputs:
+  file:
+    description: Absolute path of the bundle
+    value: ${{ steps.create.outputs.file }}
+  name:
+    description: Bundle file name
+    value: ${{ steps.create.outputs.name }}
+  version:
+    description: Bundle version
+    value: ${{ steps.create.outputs.version }}
+  sha256:
+    description: SHA-256 of the bundle
+    value: ${{ steps.create.outputs.sha256 }}
+  size:
+    description: Size in bytes
+    value: ${{ steps.create.outputs.size }}
+  content-sha256:
+    description: Content hash (equal means the same code)
+    value: ${{ steps.create.outputs.content-sha256 }}
+  meta:
+    description: Path of the .meta.json file
+    value: ${{ steps.create.outputs.meta }}
+  application:
+    description: Application name
+    value: ${{ steps.create.outputs.application }}
+  component:
+    description: Component name
+    value: ${{ steps.create.outputs.component }}
+  platform:
+    description: Bundle platform
+    value: ${{ steps.create.outputs.platform }}
+  unchanged:
+    description: "true when pmx found nothing new to bundle"
+    value: ${{ steps.create.outputs.unchanged }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PMX_VERSION_INPUT: ${{ inputs.pmx-version }}
+      run: bash "$ACTION_PATH/../_lib/install-pmx.sh"
+    - id: create
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        IN_CONFIG: ${{ inputs.config }}
+        IN_COMPONENT: ${{ inputs.component }}
+        IN_APPLICATION: ${{ inputs.application }}
+        IN_VERSION: ${{ inputs.version }}
+        IN_BUILD: ${{ inputs.build }}
+        IN_OUT: ${{ inputs.out }}
+        IN_SIGN: ${{ inputs.sign }}
+        PMX_BUNDLE_ENV: ${{ inputs.env }}
+        PMX_BUNDLE_KEY: ${{ inputs.env-key }}
+        PMX_BUNDLE_SIGNING_KEY: ${{ inputs.signing-key }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$ACTION_PATH/../_lib/common.sh"
+        pmx_env
+        mask_value "$PMX_BUNDLE_ENV"
+        mask_value "$PMX_BUNDLE_KEY"
+        mask_value "$PMX_BUNDLE_SIGNING_KEY"
+        require_one_of build "$IN_BUILD" true false
+        require_one_of sign "$IN_SIGN" true false
+
+        args=(bundle create . --out "$IN_OUT")
+        [ -z "$IN_CONFIG" ] || args+=(--config "$IN_CONFIG")
+        [ -z "$IN_COMPONENT" ] || args+=(--component "$IN_COMPONENT")
+        [ -z "$IN_APPLICATION" ] || args+=(--application "$IN_APPLICATION")
+        [ -z "$IN_VERSION" ] || args+=(--version "$IN_VERSION")
+        is_true "$IN_BUILD" || args+=(--no-build)
+        if [ -n "$PMX_BUNDLE_ENV" ]; then
+          args+=(--env-from env:PMX_BUNDLE_ENV)
+          if [ -n "$PMX_BUNDLE_KEY" ]; then args+=(--env-key env:PMX_BUNDLE_KEY); fi
+        fi
+        if is_true "$IN_SIGN"; then
+          [ -n "$PMX_BUNDLE_SIGNING_KEY" ] || die "sign: true needs the signing-key input"
+          args+=(--sign)
+        fi
+        [ -n "$PMX_BUNDLE_ENV" ] || unset PMX_BUNDLE_ENV
+        [ -n "$PMX_BUNDLE_KEY" ] || unset PMX_BUNDLE_KEY
+        [ -n "$PMX_BUNDLE_SIGNING_KEY" ] || unset PMX_BUNDLE_SIGNING_KEY
+
+        pmx "${args[@]}"
+
+        # pmx wrote its outputs (BPL-018); add content-sha256 and an absolute file path.
+        if [ -n "${GITHUB_OUTPUT:-}" ] && [ -f "$GITHUB_OUTPUT" ]; then
+          content=$(sed -n 's/^content_sha256=//p' "$GITHUB_OUTPUT" | tail -n1)
+          [ -z "$content" ] || set_output content-sha256 "$content"
+          file=$(sed -n 's/^file=//p' "$GITHUB_OUTPUT" | tail -n1)
+          case "$file" in
+            "" | /*) ;;
+            *) set_output file "$PWD/$file" ;;
+          esac
+        fi

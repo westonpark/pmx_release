@@ -1,0 +1,126 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+name: pmx publish
+description: Publish a bundle (prodman, GitHub release asset or URL), optionally deploying and waiting.
+inputs:
+  file:
+    description: Bundle file (usually the file output of the bundle action)
+    required: true
+  prodman-url:
+    description: Prodman base URL
+    required: true
+  token:
+    description: "Prodman API token (secret; not needed with auth: oidc)"
+    default: ""
+  bucket:
+    description: Prodman bucket id or name
+    required: true
+  auth:
+    description: "token or oidc"
+    default: token
+  store:
+    description: "prodman, github or url"
+    default: prodman
+  github-token:
+    description: "Token for store: github"
+    default: ${{ github.token }}
+  keep:
+    description: Number of releases to keep
+    default: "5"
+  channel:
+    description: Release channel
+    default: ""
+  notes:
+    description: Release notes
+    default: ""
+  changelog:
+    description: "auto, none or a file"
+    default: auto
+  deploy-to:
+    description: Environment to deploy to after publishing
+    default: ""
+  wait:
+    description: "Wait for the deployment to finish"
+    default: "false"
+  wait-timeout:
+    description: Wait timeout
+    default: 30m
+  skip-unchanged:
+    description: "Skip publishing when the content is unchanged"
+    default: "false"
+  pmx-version:
+    description: "pinned, latest or an exact pmx version"
+    default: pinned
+outputs:
+  release-id:
+    description: Release id
+    value: ${{ steps.publish.outputs.release-id }}
+  release-url:
+    description: Release URL
+    value: ${{ steps.publish.outputs.release-url }}
+  rollout-id:
+    description: Rollout id (with deploy-to)
+    value: ${{ steps.publish.outputs.rollout-id }}
+  rollout-status:
+    description: Rollout status
+    value: ${{ steps.publish.outputs.rollout-status }}
+  rollout-url:
+    description: Rollout URL
+    value: ${{ steps.publish.outputs.rollout-url }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PMX_VERSION_INPUT: ${{ inputs.pmx-version }}
+      run: bash "$ACTION_PATH/../_lib/install-pmx.sh"
+    - id: publish
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        IN_FILE: ${{ inputs.file }}
+        IN_AUTH: ${{ inputs.auth }}
+        IN_STORE: ${{ inputs.store }}
+        IN_KEEP: ${{ inputs.keep }}
+        IN_CHANNEL: ${{ inputs.channel }}
+        IN_NOTES: ${{ inputs.notes }}
+        IN_CHANGELOG: ${{ inputs.changelog }}
+        IN_DEPLOY_TO: ${{ inputs.deploy-to }}
+        IN_WAIT: ${{ inputs.wait }}
+        IN_WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        IN_SKIP_UNCHANGED: ${{ inputs.skip-unchanged }}
+        PRODMAN_URL: ${{ inputs.prodman-url }}
+        PRODMAN_TOKEN: ${{ inputs.token }}
+        PRODMAN_BUCKET: ${{ inputs.bucket }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$ACTION_PATH/../_lib/common.sh"
+        pmx_env
+        mask_value "$PRODMAN_TOKEN"
+        mask_value "$GITHUB_TOKEN"
+        require_value file "$IN_FILE"
+        require_value prodman-url "$PRODMAN_URL"
+        require_value bucket "$PRODMAN_BUCKET"
+        require_one_of auth "$IN_AUTH" token oidc
+        require_one_of store "$IN_STORE" prodman github url
+        require_one_of wait "$IN_WAIT" true false
+        require_one_of skip-unchanged "$IN_SKIP_UNCHANGED" true false
+        if [ "$IN_AUTH" = token ]; then require_value token "$PRODMAN_TOKEN"; fi
+        [ -n "$PRODMAN_TOKEN" ] || unset PRODMAN_TOKEN
+        if [ "$IN_STORE" != github ]; then unset GITHUB_TOKEN; fi
+
+        args=(bundle publish --json --store "$IN_STORE" --keep "$IN_KEEP" --changelog "$IN_CHANGELOG")
+        [ "$IN_AUTH" != oidc ] || args+=(--oidc)
+        [ "$IN_STORE" != github ] || args+=(--repo "$GITHUB_REPOSITORY")
+        [ -z "$IN_CHANNEL" ] || args+=(--channel "$IN_CHANNEL")
+        [ -z "$IN_NOTES" ] || args+=(--notes "$IN_NOTES")
+        [ -z "$IN_DEPLOY_TO" ] || args+=(--deploy "$IN_DEPLOY_TO")
+        if is_true "$IN_WAIT"; then args+=(--wait --timeout "$IN_WAIT_TIMEOUT"); fi
+        if is_true "$IN_SKIP_UNCHANGED"; then args+=(--skip-unchanged); fi
+
+        # Exit codes (0/1/2/3, BPL-061) pass through unchanged.
+        args+=(-- "$IN_FILE")
+        pmx "${args[@]}"
