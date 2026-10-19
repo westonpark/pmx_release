@@ -11,7 +11,8 @@ runners only (x64 and arm64); Windows is not supported.
 | `westonpark/pmx_release/actions/deploy@v1` | `pmx bundle rollout` / `pmx bundle status --wait` |
 
 Example workflows are in [`examples/workflows`](../examples/workflows): `review-flow`, `automated-flow`,
-`github-store`, `python-uv`, `signed-release`.
+`github-store`, `python-uv`, `signed-release`, `env-store-flow` (pmx 9.11: the env lives in prodman's env
+store, so the workflow needs only `PRODMAN_TOKEN` — no `env`/`env-key` secrets).
 
 ## Versioning
 
@@ -34,10 +35,15 @@ anchor is the commit of the action). Any other version is checked by the pinned 
 ## bundle
 
 Inputs: `working-directory` (`.`), `config`, `component`, `application`, `version`, `build` (`true`),
-`out` (`dist/bundle`), `sign` (`false`), `pmx-version`. Secret inputs: `env` (environment file contents,
-shipped encrypted), `env-key`, `signing-key`.
+`out` (`dist/bundle`), `sign` (`false`), `vars` (one `name=value` per line, for config
+placeholders; pmx 9.11), `pmx-version`. Secret inputs: `env` (environment file contents,
+shipped encrypted), `env-key`, `signing-key` — all optional: with prodman's env store (pmx 9.11) leave
+`env`/`env-key` out and keep the variables in prodman. Env variants (one env per server or
+environment in one bundle) are configured with `env.variants` in `pmx-bundle.config.json5`.
 Outputs: `file`, `name`, `version`, `sha256`, `size`, `content-sha256`, `meta`, `application`,
-`component`, `platform`, `unchanged`.
+`component`, `platform`, `unchanged` (when one bundle was built), and `count`, `out`, `bundles`
+(JSON). A config with a `matrix` builds one bundle per entry into `<out>/<component>/`; pass the
+`out` output as the publish action's `file` to publish them all.
 
 ## publish
 

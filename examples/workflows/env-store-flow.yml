@@ -1,0 +1,34 @@
+# Copyright (c) 2026 Mike Warriner. Licensed for use with pmx; see https://github.com/westonpark/pmx_release.
+# Build a bundle that carries no env and publish it to prodman. The variables live in prodman's
+# env store and reach each server sealed to its host key (pmx 9.11 on the servers): GitHub holds
+# neither the env nor a bundle key, only PRODMAN_TOKEN. Rotate a credential in prodman, then
+# "Apply env" there (or re-run a rollout of the same version) - no rebuild.
+name: Bundle and publish (env held by prodman)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for the changelog
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: bundle
+        uses: westonpark/pmx_release/actions/bundle@v1 # no env / env-key inputs
+      - uses: westonpark/pmx_release/actions/publish@v1
+        with:
+          file: ${{ steps.bundle.outputs.file }}
+          prodman-url: ${{ vars.PRODMAN_URL }}
+          bucket: ${{ vars.PRODMAN_BUCKET }}
+          token: ${{ secrets.PRODMAN_TOKEN }} # the only secret: pdb_ token, capabilities release, read

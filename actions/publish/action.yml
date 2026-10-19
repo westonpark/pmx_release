@@ -3,7 +3,7 @@ name: pmx publish
 description: Publish a bundle (prodman, GitHub release asset or URL), optionally deploying and waiting.
 inputs:
   file:
-    description: Bundle file (usually the file output of the bundle action)
+    description: Bundle file (usually the file output of the bundle action), or a directory of bundles (the out output, e.g. for a matrix)
     required: true
   prodman-url:
     description: Prodman base URL

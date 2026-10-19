@@ -26,6 +26,9 @@ inputs:
   sign:
     description: "Sign the bundle (needs signing-key)"
     default: "false"
+  vars:
+    description: "Config placeholders, one name=value per line (pmx bundle create --var, pmx 9.11)"
+    default: ""
   env:
     description: "Contents of the environment file to ship encrypted (secret)"
     default: ""
@@ -72,6 +75,15 @@ outputs:
   unchanged:
     description: "true when pmx found nothing new to bundle"
     value: ${{ steps.create.outputs.unchanged }}
+  count:
+    description: "Number of bundles built (several with a matrix config, pmx 9.11)"
+    value: ${{ steps.create.outputs.count }}
+  out:
+    description: "Output directory (publish it to publish every bundle)"
+    value: ${{ steps.create.outputs.out }}
+  bundles:
+    description: "JSON array of the bundles built"
+    value: ${{ steps.create.outputs.bundles }}
 runs:
   using: composite
   steps:
@@ -93,6 +105,7 @@ runs:
         IN_BUILD: ${{ inputs.build }}
         IN_OUT: ${{ inputs.out }}
         IN_SIGN: ${{ inputs.sign }}
+        IN_VARS: ${{ inputs.vars }}
         PMX_BUNDLE_ENV: ${{ inputs.env }}
         PMX_BUNDLE_KEY: ${{ inputs.env-key }}
         PMX_BUNDLE_SIGNING_KEY: ${{ inputs.signing-key }}
@@ -113,6 +126,9 @@ runs:
         [ -z "$IN_APPLICATION" ] || args+=(--application "$IN_APPLICATION")
         [ -z "$IN_VERSION" ] || args+=(--version "$IN_VERSION")
         is_true "$IN_BUILD" || args+=(--no-build)
+        while IFS= read -r line; do
+          [ -z "$line" ] || args+=(--var "$line")
+        done <<< "$IN_VARS"
         if [ -n "$PMX_BUNDLE_ENV" ]; then
           args+=(--env-from env:PMX_BUNDLE_ENV)
           if [ -n "$PMX_BUNDLE_KEY" ]; then args+=(--env-key env:PMX_BUNDLE_KEY); fi
