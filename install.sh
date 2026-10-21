@@ -26,8 +26,8 @@ PROG="pmx install"
 # pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
 # hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
 PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
-PMX_RELEASE_VERSION="9.11.0"
-PMX_RELEASE_SHA256S="linux-x64=885471d9792bf122b58d7d2c83f174a207bbba737effb93373ac31498e251f66 linux-arm64=341ab28b42099fadd703997bf3fe628262439ac88c14f82f5d0ce683e7361119 linux-x64-musl=13f2b311c7296608f9927d6b69a1487f36eecb65d77edfc61fa363ef468e1e98 linux-arm64-musl=46a6343b7ab5c0905db1da97cc1088dcdc5796985252a0bca9f234baa83bbedd linux-armhf=3c1dcab084760baff8e9f8449b48cd9206dea68bd845fabcb047b76d1e394dfa darwin-x64=6762152a4d8db871bea0d9e84ed92456f0faa1c74752400bc609eea8a0b4e355 darwin-arm64=f433d9519b8b60f80c843a830907712744cd5e185d914e96bea619ad3a03b4a0"
+PMX_RELEASE_VERSION="9.13.0"
+PMX_RELEASE_SHA256S="linux-x64=ddaec1ba46bea06e9b6fb2781ec521f5bc8f26e56a820e12e220e39dcabbeb1a linux-arm64=61b5668927f1c16f45d2a9fcec753cc38944977ca517c5cb11cef34c0ae62b9f linux-x64-musl=0d3658f98eaf2ffd2267691327a50460a3124934e918d1af92465ba2f3e5e764 linux-arm64-musl=5c67a91909cc9558421c2e8852629ce30eee3e5ce88e6a31dc246ddf56ab4d22 linux-armhf=a04743c568d71be8b66e002da26eaad0909d768363477d64e277d64efa3c064a darwin-x64=fb30d765ab3898fc18c4327d8540fe25b86a782c37b7c26879faeadcee697a7e darwin-arm64=41c401585045091242a056039d7eb1ebbfe0c8fe745d1d107e8732eb267001d9"
 
 usage() {
     cat <<'EOF'
@@ -632,11 +632,24 @@ as_root() {
 
 pid_alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
 
+# A process run by a binfmt emulator (QEMU user mode, Rosetta: an emulated container, e.g.
+# amd64 on an arm64 host) shows "<emulator> <binary> <argv0> <args>" in /proc/<pid>/cmdline;
+# its title is the part from argv0 on.
+strip_emulator() {
+    case "$1" in
+        */qemu-*" "*" "* | qemu-*" "*" "* | */rosetta" "*" "*)
+            _se=${1#* }
+            printf '%s' "${_se#* }"
+            ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
 cmdline_of() {
     if [ -r "/proc/$1/cmdline" ]; then
-        tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | sed 's/ *$//'
+        strip_emulator "$(tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | sed 's/ *$//')"
     elif have ps; then
-        ps -o args= -p "$1" 2>/dev/null || true
+        strip_emulator "$(ps -o args= -p "$1" 2>/dev/null || true)"
     fi
 }
 
@@ -647,6 +660,7 @@ find_titled_daemon() {
         for _d in /proc/[0-9]*; do
             [ -r "$_d/cmdline" ] || continue
             _c=$(tr '\0' ' ' <"$_d/cmdline" 2>/dev/null) || continue
+            _c=$(strip_emulator "$_c")
             case "$_c" in
                 "PM2 v"*": $_title"*)
                     _o=$(stat -c %u "$_d" 2>/dev/null || echo "")
@@ -659,6 +673,7 @@ find_titled_daemon() {
         done
     elif have ps; then
         ps -axo pid=,uid=,args= 2>/dev/null | while read -r _p _u _a; do
+            _a=$(strip_emulator "$_a")
             case "$_a" in
                 "PM2 v"*": $_title"*)
                     if [ "$_u" = "$USER_ID" ]; then
@@ -714,16 +729,29 @@ detect_daemon() {
     [ "$DKIND" = pmx ] || return 0
     # Which file does it run? Linux: /proc/<pid>/exe (" (deleted)" once the binary was replaced).
     _stale=0
+    _emulated=0
     if [ -L "/proc/$DPID/exe" ]; then
         _exe=$(readlink "/proc/$DPID/exe" 2>/dev/null || true)
         case "$_exe" in
             *" (deleted)") _stale=1 ;;
+            */qemu-* | */rosetta)
+                # binfmt emulation (see strip_emulator): exe is the emulator, the binary is the
+                # next word of the raw command line
+                _raw=$(tr '\0' ' ' <"/proc/$DPID/cmdline" 2>/dev/null || true)
+                _raw=${_raw#* }
+                _path=${_raw%% *}
+                _emulated=1
+                ;;
             ?*) _path=$_exe ;;
         esac
     fi
     _same=0
     if [ -n "$_path" ] && [ "$(resolve "$_path")" = "$(resolve "$BIN")" ]; then
         _same=1
+    fi
+    # emulated: no " (deleted)" to read; a binary just replaced at its path means it runs the old one
+    if [ "$_emulated" = 1 ] && [ "$_same" = 1 ] && [ "$BIN_CHANGED" = 1 ]; then
+        _stale=1
     fi
     if [ "$DVER" = "?" ] && [ "$_stale" = 0 ] && [ -n "$_path" ]; then
         if [ "$_same" = 1 ] && [ "$BIN_CHANGED" = 1 ]; then
