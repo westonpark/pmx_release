@@ -7,7 +7,7 @@
 # systemd service (`pmx startup systemd`), links to prodman, and removes other pm2 installs.
 # Re-running it is safe: a healthy host is left alone (idempotent repair).
 #
-#   curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh | sh
+#   curl -fsSL https://pmx.aidra.io/install.sh | sh
 #   curl -fsSL …/install.sh | sh -s -- --dry-run
 #
 # Releases are public (02-decisions D-30): no token is needed to download them.
@@ -26,8 +26,8 @@ PROG="pmx install"
 # pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
 # hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
 PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
-PMX_RELEASE_VERSION="9.13.0"
-PMX_RELEASE_SHA256S="linux-x64=ddaec1ba46bea06e9b6fb2781ec521f5bc8f26e56a820e12e220e39dcabbeb1a linux-arm64=61b5668927f1c16f45d2a9fcec753cc38944977ca517c5cb11cef34c0ae62b9f linux-x64-musl=0d3658f98eaf2ffd2267691327a50460a3124934e918d1af92465ba2f3e5e764 linux-arm64-musl=5c67a91909cc9558421c2e8852629ce30eee3e5ce88e6a31dc246ddf56ab4d22 linux-armhf=a04743c568d71be8b66e002da26eaad0909d768363477d64e277d64efa3c064a darwin-x64=fb30d765ab3898fc18c4327d8540fe25b86a782c37b7c26879faeadcee697a7e darwin-arm64=41c401585045091242a056039d7eb1ebbfe0c8fe745d1d107e8732eb267001d9"
+PMX_RELEASE_VERSION="9.14.0"
+PMX_RELEASE_SHA256S="linux-x64=2c044dfb3ee42080c5467f67a38c2bb2f0987a83bcb2b0db874a079aa66f418e linux-arm64=0ac978cf27d07746cda0693b32f12e4b469524867763a3bd55abbaf4c9c5316c linux-x64-musl=bc3429609579a09510467933e163733ecb831163e1e899d32134f294e92f7ed0 linux-arm64-musl=672bf5588ffefe19683a228411b4b12bd38afaf27a56094bc5601b925ac020b3 linux-armhf=665ad51cd918c17526c89f99bae5c07c76b08a72e4f20259033524cb325390cb darwin-x64=93a299a5094bf09d7468de04702b7a186ffac9b419c8e30a4a5773a5e59a0919 darwin-arm64=770f4b9481f64f7dcda215694320fe4d3b390ad210dba53d82cfb4f94999b96a"
 
 usage() {
     cat <<'EOF'
