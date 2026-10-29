@@ -59,10 +59,17 @@ when `uname -m` says `aarch64` (32-bit Raspberry Pi OS with the 64-bit kernel). 
 ## Quick install
 
 ```sh
+curl -fsSL https://pmx.aidra.io/install.sh | sh
+```
+
+`https://pmx.aidra.io/install.sh` redirects to the signed `install.sh` of the latest release
+here, which downloads the pmx binary from that release. The same script, straight from GitHub:
+
+```sh
 curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh | sh
 ```
 
-The same installer is also on the `main` branch of this repository:
+and on the `main` branch of this repository:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/westonpark/pmx_release/main/install.sh | sh
@@ -73,7 +80,7 @@ unless root runs them); it uses `sudo` only to install the systemd service and t
 pm2 installed system-wide. To see what it would do without changing anything:
 
 ```sh
-curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh | sh -s -- --dry-run
+curl -fsSL https://pmx.aidra.io/install.sh | sh -s -- --dry-run
 ```
 
 The installer:
@@ -124,7 +131,7 @@ curl -fsSL https://github.com/westonpark/pmx_release/releases/download/v9.13.0/i
 Install somewhere else, binary only:
 
 ```sh
-curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh |
+curl -fsSL https://pmx.aidra.io/install.sh |
   sh -s -- --dir /opt/pmx/bin --no-setup
 ```
 
@@ -132,7 +139,7 @@ Install and link to prodman in one step (the keys are shown in your prodman buck
 settings; they are passed only to `pmx link`, never exported to your apps):
 
 ```sh
-curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh |
+curl -fsSL https://pmx.aidra.io/install.sh |
   PRODMAN_URL=https://prodman.example.com PM2_PUBLIC_KEY=<public key> PM2_SECRET_KEY=<secret key> sh
 ```
 
@@ -243,7 +250,7 @@ pmx link <secret key> <public key>      # link this host to prodman (or just `pm
 ## Uninstall
 
 ```sh
-curl -fsSL https://github.com/westonpark/pmx_release/releases/latest/download/install.sh | sh -s -- --uninstall
+curl -fsSL https://pmx.aidra.io/install.sh | sh -s -- --uninstall
 ```
 
 This saves the process list, removes the `pm2-<user>` systemd service, stops the daemon and
