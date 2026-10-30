@@ -1,6 +1,6 @@
 {
   "name": "pmx",
-  "version": "9.14.1",
+  "version": "9.15.0",
   "private": true,
   "description": "pmx release metadata: the version of the latest pmx release (read by prodman's update check). pmx is installed from the GitHub releases of this repository, not from npm.",
   "license": "SEE LICENSE IN LICENSE",

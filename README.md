@@ -124,8 +124,8 @@ Options go after `sh -s --`; environment variables go before `sh` (or are export
 Pin a version:
 
 ```sh
-curl -fsSL https://github.com/westonpark/pmx_release/releases/download/v9.14.1/install.sh |
-  PMX_VERSION=9.14.1 sh
+curl -fsSL https://github.com/westonpark/pmx_release/releases/download/v9.15.0/install.sh |
+  PMX_VERSION=9.15.0 sh
 ```
 
 Install somewhere else, binary only:
