@@ -26,8 +26,8 @@ PROG="pmx install"
 # pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
 # hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
 PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
-PMX_RELEASE_VERSION="9.14.0"
-PMX_RELEASE_SHA256S="linux-x64=2c044dfb3ee42080c5467f67a38c2bb2f0987a83bcb2b0db874a079aa66f418e linux-arm64=0ac978cf27d07746cda0693b32f12e4b469524867763a3bd55abbaf4c9c5316c linux-x64-musl=bc3429609579a09510467933e163733ecb831163e1e899d32134f294e92f7ed0 linux-arm64-musl=672bf5588ffefe19683a228411b4b12bd38afaf27a56094bc5601b925ac020b3 linux-armhf=665ad51cd918c17526c89f99bae5c07c76b08a72e4f20259033524cb325390cb darwin-x64=93a299a5094bf09d7468de04702b7a186ffac9b419c8e30a4a5773a5e59a0919 darwin-arm64=770f4b9481f64f7dcda215694320fe4d3b390ad210dba53d82cfb4f94999b96a"
+PMX_RELEASE_VERSION="9.14.1"
+PMX_RELEASE_SHA256S="linux-x64=ee8fa506c871b54589fb513fd46e38135d94ca1aa37d4c5762d0ddd4d4f10b92 linux-arm64=fa8a6c3b4f3501085ce2484120d4f918a277413e30b71207db9f378b027a5b08 linux-x64-musl=b016d655d444110b9e28952bec60f97cc739b90c6541a547e974be8447458cfc linux-arm64-musl=d0fd2e42fe970809acca18a8c3efeb2cf97f9efa128a0c165874b6b666214879 linux-armhf=8f3f71db3980882673462a3075725387ea92bcc9405074530b95f14e8a363fb2 darwin-x64=3b8ad3f58dfc93bc016c8c6d1bf268fba0ddf09aa628c0954b143ce518b0773e darwin-arm64=ec9070967b2ec3d2bbc3bce741cb95d7eaa39bfb128961d93ae9643d0ca33fe3"
 
 usage() {
     cat <<'EOF'
@@ -50,8 +50,8 @@ Environment:
   PMX_PLATFORM (force an asset, e.g. linux-x64-musl or linux-armhf),
   PMX_GITHUB_TOKEN (download through the GitHub API, for a private mirror; GITHUB_TOKEN /
   GH_TOKEN are used too, but only when PMX_REPO names another repository),
-  PRODMAN_URL + PM2_PUBLIC_KEY + PM2_SECRET_KEY [+ PM2_MACHINE_NAME] (link to a bucket),
-  PM2_RELINK=1 (replace a link to another bucket), PM2_HOME (default ~/.pm2),
+  PRODMAN_URL + PM2_PUBLIC_KEY + PM2_SECRET_KEY [+ PM2_MACHINE_NAME] (link to a bucket;
+  relinks when the host is linked to another bucket or URL), PM2_HOME (default ~/.pm2),
   PM2_NODE (node used for the service PATH).
 EOF
 }
@@ -166,7 +166,7 @@ L_URL=${PRODMAN_URL:-}
 L_PUBLIC=${PM2_PUBLIC_KEY:-}
 L_SECRET=${PM2_SECRET_KEY:-}
 L_MACHINE=${PM2_MACHINE_NAME:-}
-L_RELINK=${PM2_RELINK:-}
+# PM2_RELINK is no longer needed (any other bucket or URL relinks); still cleared
 unset PRODMAN_URL PM2_PUBLIC_KEY PM2_SECRET_KEY PM2_MACHINE_NAME PM2_RELINK
 if [ -n "$L_URL" ]; then
     # 09 open issue 6: a stray KEYMETRICS_NODE would override the URL given here.
@@ -1084,6 +1084,20 @@ run_under_unit() {
 
 # --------------------------------------------------------------------------- prodman link
 
+# A prodman URL as pmx stores it (50 AG-200): https:// added to a bare host (http:// for
+# localhost or an IP), trailing slashes removed.
+root_url() {
+    _u=$1
+    case "$_u" in
+        "") ;;
+        *://*) ;;
+        localhost* | \[* | [0-9]*.[0-9]*) _u="http://$_u" ;;
+        *) _u="https://$_u" ;;
+    esac
+    while [ "${_u%/}" != "$_u" ]; do _u=${_u%/}; done
+    printf '%s' "$_u"
+}
+
 LINKED=0
 link_prodman() {
     if [ -z "$L_PUBLIC" ] && [ -z "$L_SECRET" ]; then
@@ -1095,17 +1109,18 @@ link_prodman() {
         [ -f "$PM2_HOME/agent.json5" ] && LINKED=1
         return 0
     fi
+    # same bucket and same server → nothing; another bucket or server → relink (D-69)
+    _cur_url=$(sed -n 's/.*"info_node"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PM2_HOME/agent.json5" 2>/dev/null | head -n 1)
     if [ -f "$PM2_HOME/agent.json5" ] &&
         grep -q "\"public_key\"[[:space:]]*:[[:space:]]*\"$L_PUBLIC\"" "$PM2_HOME/agent.json5" 2>/dev/null; then
-        say "already linked to this bucket"
-        LINKED=1
-        return 0
-    fi
-    if [ -f "$PM2_HOME/agent.json5" ] && grep -q '"public_key"' "$PM2_HOME/agent.json5" 2>/dev/null &&
-        [ "$L_RELINK" != 1 ]; then
-        warn "already linked to another bucket, so not relinked (set PM2_RELINK=1 to link to this one)"
-        LINKED=1
-        return 0
+        if [ "$(root_url "$_cur_url")" = "$(root_url "$L_URL")" ]; then
+            say "already linked to this bucket"
+            LINKED=1
+            return 0
+        fi
+        say "linked to this bucket at ${_cur_url:-the default server}: relinking to $L_URL"
+    elif [ -f "$PM2_HOME/agent.json5" ] && grep -q '"public_key"' "$PM2_HOME/agent.json5" 2>/dev/null; then
+        say "linked to another bucket: relinking"
     fi
     say "linking to $L_URL"
     _rc=0
