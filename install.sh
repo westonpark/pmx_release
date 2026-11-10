@@ -26,8 +26,8 @@ PROG="pmx install"
 # pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
 # hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
 PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
-PMX_RELEASE_VERSION="9.23.0"
-PMX_RELEASE_SHA256S="linux-x64=d7c6064e064c7cf380ebf009186ecb8dbfd53ed09b4ab99dcd33659408a6090e linux-arm64=c3c72416c565076194bba150c8f5126ad90afca7fbf99c77c0ae23edb64db154 linux-x64-musl=a252d2cd0b3da3ba873f3e89002955736fe798d066840159db3dbf5740cc9aa0 linux-arm64-musl=6facfbdba45496811bc497af02ff49584b056987b7ea41f4f166f3fa06010918 linux-armhf=b21bdb673d779acf8e64a55a8935009bf073b0524e1a5dd5a3c6b05836fca76e darwin-x64=043c32c24047d309819fed026195adbfb57619287bf448d3ac4d9f6812328d54 darwin-arm64=22c5197e8233f4e467759fcb08ff06b6ee9180463732a1f8c425ee3b028b0fe0"
+PMX_RELEASE_VERSION="9.24.1"
+PMX_RELEASE_SHA256S="linux-x64=ccddeab9aca1f4a84a339bab5b6bd0695f01f51502328a91fd7f4cc4a8b2eb95 linux-arm64=37a0c068c30896ef31021117f9df0f7c784defb9b2a9c426e2d747fc2b621f31 linux-x64-musl=82c9dfe14c617a3482afa02e2302cedc85a358fba46740ca3ff3a6fb113f8f28 linux-arm64-musl=233af8447b11723bdcba065b400d104d43f61fff20a8a935cc2c08908970b721 linux-armhf=cbd68d1f73034226e5bcd3cfa285576e4bf99d30269f6e127697ce5d0ec3424f darwin-x64=c9ce3d815588b935b13a2fe1d1bba9757ed8c37e09623483e407db8acbcc9730 darwin-arm64=ae13763abc6fe78790c55876330f58802ad191b276878dc0c9ba368442ff6819"
 
 usage() {
     cat <<'EOF'
@@ -381,6 +381,69 @@ download_verified() {
         die "cannot download $SRC/$ASSET.minisig"
     fi
     download_notices
+    download_web
+}
+
+# 99 WEB-043: pmx-web, the static-site server, next to pmx (Linux x64/arm64 and macOS, from
+# pmx 9.24.0). Best effort: a platform or release without it installs pmx alone. Verified like
+# pmx: the .sha256, then the signature (minisign, else the verified pmx checks it).
+WEB_BIN="$INSTALL_DIR/pmx-web"
+WEB_TMP=""
+web_era() {
+    _wv=${1%%-*}
+    _wmaj=${_wv%%.*}
+    _wrest=${_wv#*.}
+    _wmin=${_wrest%%.*}
+    case "$_wmaj$_wmin" in *[!0-9]* | "") return 1 ;; esac
+    [ "$_wmaj" -gt 9 ] || { [ "$_wmaj" -eq 9 ] && [ "$_wmin" -ge 24 ]; }
+}
+download_web() {
+    case "$PLATFORM" in
+        linux-x64 | linux-arm64 | linux-x64-musl | linux-arm64-musl | darwin-*) ;;
+        *) return 0 ;;
+    esac
+    web_era "$VERSION" || return 0
+    _w="pmx-web-$PLATFORM"
+    for _x in "" .sha256 .minisig; do
+        if [ -n "$GH_TOKEN_VALUE" ] && [ -z "$BASE_URL" ]; then
+            _u=$(api_asset_url "$_w$_x")
+            if [ -z "$_u" ] || ! fetch "$_u" "$TMP/$_w$_x" "application/octet-stream" 2>/dev/null; then
+                warn "no $_w$_x in this release: pmx-web not installed"
+                return 0
+            fi
+        else
+            fetch "$SRC/$_w$_x" "$TMP/$_w$_x" 2>/dev/null || { warn "no $_w$_x in this release: pmx-web not installed"; return 0; }
+        fi
+    done
+    _ww=$(awk 'NR == 1 {print tolower($1); exit}' "$TMP/$_w.sha256")
+    [ "$(sha256_of "$TMP/$_w")" = "$_ww" ] || die "checksum mismatch for $_w"
+    _wtc=$(sed -n 's/^trusted comment: //p' "$TMP/$_w.minisig" | head -n1)
+    [ "$_wtc" = "pmx-release v$VERSION $_w" ] || die "$_w.minisig is for ${_wtc#pmx-release }"
+    if have minisign; then
+        _ok=0
+        for _k in $PMX_SIGNING_KEYS; do
+            if minisign -Vq -P "$_k" -m "$TMP/$_w" -x "$TMP/$_w.minisig" >/dev/null 2>&1; then _ok=1; fi
+        done
+        [ "$_ok" = 1 ] || die "bad signature on $_w"
+    elif ! _out=$("$TMP/$ASSET" verify-signature "$TMP/$_w" "$TMP/$_w.minisig" --asset "$_w" --version "$VERSION" 2>&1); then
+        die "${_out:-bad signature on $_w}"
+    fi
+    say "verified the signature of $_w"
+    chmod 755 "$TMP/$_w"
+    WEB_TMP="$TMP/$_w"
+}
+install_web() {
+    [ -n "$WEB_TMP" ] || return 0
+    if is_dry; then
+        say "[dry-run] would install $WEB_BIN"
+        return 0
+    fi
+    if cp "$WEB_TMP" "$WEB_BIN.new.$$" && chmod 755 "$WEB_BIN.new.$$" && mv -f "$WEB_BIN.new.$$" "$WEB_BIN"; then
+        say "installed $WEB_BIN (static sites: pmx web setup)"
+    else
+        rm -f "$WEB_BIN.new.$$"
+        warn "could not write $WEB_BIN"
+    fi
 }
 
 # D-48: releases from 9.5.0 on are signed; older ones are verified by SHA-256 only.
@@ -582,6 +645,7 @@ install_binary() {
         fi
     done
     install_notices
+    install_web
 }
 
 # The $PM2_HOME layout, created as this user so later root-run commands (pmx startup)
@@ -1230,6 +1294,9 @@ do_uninstall() {
         fi
     done
     run rm -f "$BIN"
+    if [ -e "$WEB_BIN" ]; then
+        run rm -f "$WEB_BIN"
+    fi
     if [ -e "$NOTICES_FILE" ]; then
         run rm -f "$NOTICES_FILE"
     fi
