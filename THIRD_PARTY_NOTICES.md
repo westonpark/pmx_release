@@ -25,6 +25,7 @@ not edit by hand.
 - **alloc-stdlib 0.2.4** — BSD-3-Clause — <https://github.com/dropbox/rust-alloc-no-stdlib>
 - **allocator-api2 0.2.21** — MIT OR Apache-2.0 — <https://github.com/zakarumych/allocator-api2>
 - **arc-swap 1.9.5** — MIT OR Apache-2.0 — <https://github.com/vorner/arc-swap>
+- **argon2 0.5.3** — MIT OR Apache-2.0 — <https://github.com/RustCrypto/password-hashes/tree/master/argon2>
 - **asn1-rs 0.7.2** — MIT OR Apache-2.0 — <https://github.com/rusticata/asn1-rs.git>
 - **asn1-rs-derive 0.6.0** — MIT OR Apache-2.0 — <https://github.com/rusticata/asn1-rs.git>
 - **asn1-rs-impl 0.2.0** — MIT OR Apache-2.0 — <https://github.com/rusticata/asn1-rs.git>
@@ -34,6 +35,7 @@ not edit by hand.
 - **axum 0.8.9** — MIT — <https://github.com/tokio-rs/axum>
 - **axum-core 0.5.6** — MIT — <https://github.com/tokio-rs/axum>
 - **base64 0.22.1** — MIT OR Apache-2.0 — <https://github.com/marshallpierce/rust-base64>
+- **base64ct 1.8.3** — Apache-2.0 OR MIT — <https://github.com/RustCrypto/formats>
 - **bitflags 2.13.2** — MIT OR Apache-2.0 — <https://github.com/bitflags/bitflags>
 - **blake2 0.10.6** — MIT OR Apache-2.0 — <https://github.com/RustCrypto/hashes>
 - **block-buffer 0.10.4** — MIT OR Apache-2.0 — <https://github.com/RustCrypto/utils>
@@ -159,6 +161,7 @@ not edit by hand.
 - **openssl-probe 0.2.1** — MIT OR Apache-2.0 — <https://github.com/rustls/openssl-probe>
 - **parking_lot 0.12.5** — MIT OR Apache-2.0 — <https://github.com/Amanieu/parking_lot>
 - **parking_lot_core 0.9.12** — MIT OR Apache-2.0 — <https://github.com/Amanieu/parking_lot>
+- **password-hash 0.5.0** — MIT OR Apache-2.0 — <https://github.com/RustCrypto/traits/tree/master/password-hash>
 - **pem 3.0.6** — MIT — <https://github.com/jcreekmore/pem-rs.git>
 - **percent-encoding 2.3.2** — MIT OR Apache-2.0 — <https://github.com/servo/rust-url/>
 - **phf 0.12.1** — MIT — <https://github.com/rust-phf/rust-phf>
@@ -2441,6 +2444,40 @@ THE SOFTWARE.
 
 ### MIT License
 
+Used by: base64ct 1.8.3
+
+````text
+Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
+Copyright (c) 2021-2025 The RustCrypto Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+````
+
+### MIT License
+
 Used by: bitflags 2.13.2, log 0.4.34, num-bigint 0.4.8, num-integer 0.1.47, num-traits 0.2.19, regex-automata 0.4.18, regex-syntax 0.8.11, regex 1.13.1, relative-path 2.0.2
 
 ````text
@@ -4441,6 +4478,39 @@ DEALINGS IN THE SOFTWARE.
 
 ### MIT License
 
+Used by: password-hash 0.5.0
+
+````text
+Copyright (c) 2020-2023 RustCrypto Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+````
+
+### MIT License
+
 Used by: cpufeatures 0.2.17
 
 ````text
@@ -4505,6 +4575,39 @@ Used by: crypto-common 0.1.7
 
 ````text
 Copyright (c) 2021 RustCrypto Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+````
+
+### MIT License
+
+Used by: argon2 0.5.3
+
+````text
+Copyright (c) 2021-2024 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
