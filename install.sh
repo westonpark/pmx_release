@@ -26,8 +26,8 @@ PROG="pmx install"
 # pmx binary ("<platform>=<sha256> …"). Empty in the repository copy. Check this script by
 # hand with: minisign -Vm install.sh -P <key> (key: docs/install.md).
 PMX_SIGNING_KEYS="RWRu5PCt5yCSpMbA05EfMQAiknfqoxtbIZwE0tSCw5iRhpJht/4gboqm"
-PMX_RELEASE_VERSION="9.26.0"
-PMX_RELEASE_SHA256S="linux-x64=a68d78c346c8067b6099f63d77b79b264e4e13c3d25791e5e21da2992bea16e1 linux-arm64=bad126904cb4b9260c7444b307c95f6930edd1062b9ac3323bc1e4f48977ff11 linux-x64-musl=82301a774d57a021110bac62234fed00a1760fa0adf9003262c60772fdd4c7d3 linux-arm64-musl=dd881e59f78d51e8d9baa4b69f377defb0ff5eeceb0cc5c9a4b7586bb67e4d13 linux-armhf=4e166d7412eb3c16798fadb968867506c1e5ddbe6afc5bff8e19a833fd392288 darwin-x64=c1db66171417ecfe35881e7f62406296095d09f4df375f2cb26e7eea87c16841 darwin-arm64=3b29e88f007691c58e1bcab75ed1a7c4c7e2fd7fb911d09e67c34529a2ec9714"
+PMX_RELEASE_VERSION="9.27.0"
+PMX_RELEASE_SHA256S="linux-x64=29db828af44a8eb8065601fda790922e77cf4777f3f619d0ae4288818ab4dff9 linux-arm64=9ad3546db6192e0c06923659c7fb419e39f24191a127bbf4b2678d043ab8b1c3 linux-x64-musl=1c9ab26d362fec3c4b84b91c136c9f6e402e7cb6330ec0a6f455b2c13356cccb linux-arm64-musl=70dd5ccd1b348d52c376dcc384795e40be3e9a35e1969c6473ea88f86eb3a2b1 linux-armhf=a44ca6c888ce6da5d689fbf7ca6556cb65b096cc695ffe6710fc9db8126ad20f darwin-x64=0a96208fe5554a466181b80de93332040eca9b233acfb360e8f3755f8f50a9e9 darwin-arm64=174892d0565d571907536f2d2278519bbdcff5595ede0255087607f8a8f61325"
 
 usage() {
     cat <<'EOF'
@@ -1106,6 +1106,46 @@ setup_unit() {
 
 unit_active() { [ "$(systemctl is-active "$UNIT" 2>/dev/null || true)" = active ]; }
 
+# 20 §3.3 (D-77): a pmx daemon from 9.27.0 on can hand over: it execs the new binary in its
+# own pid and every app keeps running.
+handover_capable() {
+    [ "$DKIND" = pmx ] || return 1
+    _hv=${DVER%%,*}
+    _hmaj=${_hv%%.*}
+    _hrest=${_hv#*.}
+    _hmin=${_hrest%%.*}
+    case "$_hmaj" in "" | *[!0-9]*) return 1 ;; esac
+    case "$_hmin" in "" | *[!0-9]*) return 1 ;; esac
+    [ "$_hmaj" -gt 9 ] || { [ "$_hmaj" -eq 9 ] && [ "$_hmin" -ge 27 ]; }
+}
+
+# 0: handed over (or failed with the old daemon still running: HANDOVER_FAILED=1);
+# 1: the daemon cannot hand over, restart it instead.
+try_handover() {
+    handover_capable || return 1
+    if is_dry; then
+        say "[dry-run] would run: pmx update (hand-over of pid $DPID, apps keep running)"
+        return 0
+    fi
+    say "handing the running daemon ($(daemon_label), pid $DPID) over to pmx $VERSION: apps keep running"
+    _hrc=0
+    PMX_UPDATE_HANDOVER_ONLY=1 PM2_SERVICE_GUARD=off pmx_cmd update >"$TMP/update.log" 2>&1 || _hrc=$?
+    case $_hrc in
+        0) return 0 ;;
+        3)
+            cat "$TMP/update.log" >&2
+            warn "the running daemon cannot hand over to pmx $VERSION: restarting it instead"
+            return 1
+            ;;
+        *)
+            cat "$TMP/update.log" >&2
+            warn "the daemon hand-over failed: $(daemon_label) keeps running, nothing was restarted (see $PM2_HOME/pm2.log)"
+            HANDOVER_FAILED=1
+            return 0
+            ;;
+    esac
+}
+
 # Puts the daemon under the unit, running this binary (09 PM2-167, 50 AG-814).
 run_under_unit() {
     if unit_active; then
@@ -1113,6 +1153,9 @@ run_under_unit() {
             return 0
         fi
         if [ -z "$DPID" ] && [ "$UNIT_CHANGED" = 0 ]; then
+            return 0
+        fi
+        if [ -n "$DPID" ] && [ "$UNIT_CHANGED" = 0 ] && try_handover; then
             return 0
         fi
         say "restarting $UNIT (running $(daemon_label), installed pmx $VERSION)"
@@ -1398,7 +1441,7 @@ main() {
     if [ "$SYSTEMD" = 1 ] && [ "$UNIT_OK" = 1 ] && [ "$CAN_ROOT" = 1 ]; then
         run_under_unit
     else
-        if [ -n "$DPID" ] && [ "$DCURRENT" != 1 ]; then
+        if [ -n "$DPID" ] && [ "$DCURRENT" != 1 ] && ! try_handover; then
             say "restarting PM2 (running $(daemon_label), installed pmx $VERSION)"
             if save_and_stop; then
                 resurrect_outside_service || true
